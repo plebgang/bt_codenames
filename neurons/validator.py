@@ -29,6 +29,7 @@ from game.base.validator import BaseValidatorNeuron
 # Bittensor Validator game:
 from game.validator import forward
 
+bt.logging.on()
 
 class Validator(BaseValidatorNeuron):
     """

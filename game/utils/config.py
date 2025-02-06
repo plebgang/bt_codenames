@@ -198,7 +198,7 @@ def add_validator_args(cls, parser):
         "--neuron.sample_size",
         type=int,
         help="The number of miners to query in a single step.",
-        default=50,
+        default=4,
     )
 
     parser.add_argument(
@@ -222,14 +222,14 @@ def add_validator_args(cls, parser):
         # Note: the validator needs to serve an Axon with their IP or they may
         #   be blacklisted by the firewall of serving peers on the network.
         help="Set this flag to not attempt to serve an Axon.",
-        default=False,
+        default=True,
     )
 
     parser.add_argument(
         "--neuron.vpermit_tao_limit",
         type=int,
         help="The maximum number of TAO allowed to query a validator with a vpermit.",
-        default=4096,
+        default=15000,
     )
 
     parser.add_argument(

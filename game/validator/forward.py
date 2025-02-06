@@ -20,11 +20,45 @@
 import time
 import bittensor as bt
 
-from template.protocol import Dummy
-from template.validator.reward import get_rewards
-from template.utils.uids import get_random_uids
+from game.protocol import GameSynapse
+from game.validator.reward import get_rewards
+from game.utils.uids import get_random_uids
+import random
+import typing
+from game.utils.game import GameState, Role, TeamColor, CardColor, CardType, Clue, ChatMessage
+def organize_team(self, uids):
+    """
+    Organize the team with 4 miners randomly
 
+    Args:
+        uids (list[int]): The list of miner uids
 
+    Returns:
+        tuple[dict[str, int], dict[str, int]]: The red team and the blue team
+    """
+    # devide into 2 teams randomly
+    team1 = {}
+    team2 = {}
+    for i, uid in enumerate(uids):
+        if i == 0:
+            team1["spymaster"] = uid
+        elif i == 1:
+            team1["operative"] = uid
+        elif i == 2:
+            team2["spymaster"] = uid
+        elif i == 3:
+            team2["operative"] = uid
+    return team1, team2
+def resetAnimations(self, cards):
+    """
+    Reset the animation of the cards
+
+    Args:
+        self (:obj:`bittensor.neuron.Neuron`): The neuron object which contains all the necessary state for the validator.
+        cards (list[CardType]): The list of cards
+    """
+    for card in cards:
+        card.was_recently_revealed = False
 async def forward(self):
     """
     The forward function is called by the validator every time step.
@@ -35,29 +69,156 @@ async def forward(self):
         self (:obj:`bittensor.neuron.Neuron`): The neuron object which contains all the necessary state for the validator.
 
     """
-    # TODO(developer): Define how the validator selects a miner to query, how often, etc.
     # get_random_uids is an example method, but you can replace it with your own.
+    # * Select 4 miners randomly and organize 2 teams
     miner_uids = get_random_uids(self, k=self.config.neuron.sample_size)
-
+    bt.logging.info(f"Selected miners: {miner_uids}")
     # The dendrite client queries the network.
-    responses = await self.dendrite(
-        # Send the query to selected miner axons in the network.
-        axons=[self.metagraph.axons[uid] for uid in miner_uids],
-        # Construct a dummy query. This simply contains a single integer.
-        synapse=Dummy(dummy_input=self.step),
-        # All responses have the deserialize function called on them before returning.
-        # You are encouraged to define your own deserialization function.
-        deserialize=True,
-    )
+    # organize team
+    (red_team, blue_team) = organize_team(self, miner_uids)
+    bt.logging.info(f"Red Team: {red_team}")
+    bt.logging.info(f"Blue Team: {blue_team}")
+    
+    # * Initialize game
+    game_step = 0
+    game_state = GameState()
+    # * Game loop until game is over
+    while game_state.gameWinner is None:
+        # Prepare the query
+        if game_state.currentRole == Role.SPYMASTER:
+            cards = game_state.cards
+            if game_state.currentTeam == TeamColor.RED:
+                to_uid = red_team["spymaster"]
+            else:
+                to_uid = blue_team["spymaster"]
+        else:
+            cards = [
+                CardType(word=card.word, color= None, is_revealed=card.is_revealed, was_recently_revealed=card.was_recently_revealed)
+                for card in game_state.cards
+            ]
+            if game_state.currentTeam == TeamColor.RED:
+                to_uid = red_team["operative"]
+            else:
+                to_uid = blue_team["operative"]
+            
+            # Remove animation of recently revealed cards
+            resetAnimations(self, game_state.cards)
 
-    # Log the results for monitoring purposes.
-    bt.logging.info(f"Received responses: {responses}")
+        bt.logging.debug(f"cards: {cards}")
 
-    # TODO(developer): Define how the validator scores responses.
-    # Adjust the scores based on responses from miners.
-    rewards = get_rewards(self, query=self.step, responses=responses)
+        your_team = game_state.currentTeam
+        your_role = game_state.currentRole
+        remaining_red = game_state.remainingRed
+        remaining_blue = game_state.remainingBlue
+        your_clue = game_state.currentClue.clueText if game_state.currentClue is not None else None
+        your_number = game_state.currentClue.number if game_state.currentClue is not None else None
 
-    bt.logging.info(f"Scored responses: {rewards}")
-    # Update the scores based on the rewards. You may want to define your own update_scores function for custom behavior.
-    self.update_scores(rewards, miner_uids)
-    time.sleep(5)
+        
+        synapse = GameSynapse(
+            your_team=your_team,
+            your_role=your_role,
+            remaining_red=remaining_red,
+            remaining_blue=remaining_blue,
+            your_clue=your_clue,
+            your_number=your_number,
+            cards=cards,
+        )
+
+        bt.logging.info(synapse)
+        responses = await self.dendrite(
+            # Send the query to selected miner axons in the network.
+            axons=[self.metagraph.axons[to_uid]],
+            # Construct a query.
+            synapse=synapse,
+            # All responses have the deserialize function called on them before returning.
+            # You are encouraged to define your own deserialization function.
+            deserialize=True,
+        )
+        # TODO: handle response timeout
+        if len(responses) == 0 or responses[0] is None:
+            bt.logging.error("No response received")
+            game_state.gameWinner = TeamColor.RED if game_state.currentTeam == TeamColor.BLUE else TeamColor.BLUE
+            resetAnimations(self, game_state.cards)
+            bt.logging.info(f"💀 No response received! Game over. Winner: {game_state.gameWinner}")
+            break
+
+        if game_state.currentRole == Role.SPYMASTER:
+            # * Get the clue and number from the response
+            clue = responses[0].output.clue_text
+            number = responses[0].output.number
+            reasoning = responses[0].output.reasoning
+            game_state.currentClue = Clue(clueText=clue, number=number)
+            bt.logging.info(f"Clue: {clue}, Number: {number}")
+            bt.logging.info("====================================")
+            bt.logging.info(f"Reasoning: {reasoning}")
+            game_state.chatHistory.append(ChatMessage(sender=Role.SPYMASTER, message=reasoning, team=game_state.currentTeam, cards=game_state.cards))
+        
+        elif game_state.currentRole == Role.OPERATIVE:
+            # * Get the guessed cards from the response
+            guesses = responses[0].output.guesses
+            reasoning = responses[0].output.reasoning
+            bt.logging.info(f"Guessed cards: {guesses}")
+            bt.logging.info("====================================")
+            bt.logging.info(f"Reasoning: {reasoning}")
+            # * Update the game state
+
+            for guess in guesses:
+                card = next((c for c in game_state.cards if c.word == guess), None)
+                if card is None or card.is_revealed:
+                    bt.logging.debug(f"Invalid guess: {guess}")
+                    continue
+                card.is_revealed = True
+                card.was_recently_revealed = True
+                if card.color == CardColor.RED:
+                    game_state.remainingRed -= 1
+                elif card.color == CardColor.BLUE:
+                    game_state.remainingBlue -= 1
+                # ! Check if the card is the assassin
+                if card.color == CardColor.ASSASSIN:
+                    game_state.gameWinner = TeamColor.RED if game_state.currentTeam == TeamColor.BLUE else TeamColor.BLUE
+                    resetAnimations(self, game_state.cards)
+                    bt.logging.info(f"💀 Assassin card found! Game over. Winner: {game_state.gameWinner}")
+                    break
+                # if the card isn't our team color, break
+                if card.color is not game_state.currentTeam:
+                    break
+            game_state.currentGuesses = guesses
+            game_state.chatHistory.append(ChatMessage(sender=Role.OPERATIVE, message=reasoning, team=game_state.currentTeam, cards=game_state.cards))
+            
+            if game_state.remainingRed == 0:
+                game_state.gameWinner = TeamColor.RED
+                resetAnimations(self, game_state.cards)
+                bt.logging.info(f"🎉 All red cards found! Winner: {game_state.gameWinner}")
+            elif game_state.remainingBlue == 0:
+                game_state.gameWinner = TeamColor.BLUE
+                resetAnimations(self, game_state.cards)
+                bt.logging.info(f"🎉 All blue cards found! Winner: {game_state.gameWinner}")
+        
+        # change the role
+        game_state.previousRole = game_state.currentRole
+        game_state.previousTeam = game_state.currentTeam
+
+        if game_state.currentRole == Role.SPYMASTER:
+            game_state.currentRole = Role.OPERATIVE
+        else:
+            game_state.currentRole = Role.SPYMASTER
+
+            # change the team after operative moved
+        
+            if game_state.currentTeam == TeamColor.RED:
+                game_state.currentTeam = TeamColor.BLUE
+            else:
+                game_state.currentTeam = TeamColor.RED
+        game_step += 1
+    # # Log the results for monitoring purposes.
+    # bt.logging.info(f"Received responses: {responses}")
+
+    # # TODO(developer): Define how the validator scores responses.
+    # # Adjust the scores based on responses from miners.
+    # rewards = get_rewards(self, query=self.step, responses=responses)
+
+    # bt.logging.info(f"Scored responses: {rewards}")
+    # # Update the scores based on the rewards. You may want to define your own update_scores function for custom behavior.
+    # self.update_scores(rewards, miner_uids)
+        time.sleep(1)
+    time.sleep(10)
