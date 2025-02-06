@@ -1,7 +1,6 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# TODO(developer): Set your name
-# Copyright © 2023 <your name>
+# Copyright © 2023 plebgang
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
@@ -19,58 +18,53 @@
 
 import typing
 import bittensor as bt
+from game.utils.game import GameState, Role, TeamColor, CardColor, CardType
+from pydantic import BaseModel
+class GameSynapseOutput(BaseModel):
+    clue_text: typing.Optional[str] = None
+    number: typing.Optional[int] = None
+    guesses: typing.Optional[typing.List[str]] = None
+    reasoning: typing.Optional[str] = None
 
-# TODO(developer): Rewrite with your protocol definition.
-
-# This is the protocol for the dummy miner and validator.
-# It is a simple request-response protocol where the validator sends a request
-# to the miner, and the miner responds with a dummy response.
-
-# ---- miner ----
-# Example usage:
-#   def dummy( synapse: Dummy ) -> Dummy:
-#       synapse.dummy_output = synapse.dummy_input + 1
-#       return synapse
-#   axon = bt.axon().attach( dummy ).serve(netuid=...).start()
-
-# ---- validator ---
-# Example usage:
-#   dendrite = bt.dendrite()
-#   dummy_output = dendrite.query( Dummy( dummy_input = 1 ) )
-#   assert dummy_output == 2
-
-
-class Dummy(bt.Synapse):
+class GameSynapse(bt.Synapse):
     """
-    A simple dummy protocol representation which uses bt.Synapse as its base.
-    This protocol helps in handling dummy request and response communication between
-    the miner and the validator.
-
+    The GameSynapse class is a synapse that represents the status of the game.
     Attributes:
-    - dummy_input: An integer value representing the input request sent by the validator.
-    - dummy_output: An optional integer value which, when filled, represents the response from the miner.
+    - your_team: TeamColor
+    - your_role: Role
+    - remaining_red: int
+    - remaining_blue: int
+    - your_clue: Optional[str]
+    - your_number: Optional[int]
+    - cards: List[CardType]
+    - output: GameSynapseOutput
     """
 
-    # Required request input, filled by sending dendrite caller.
-    dummy_input: int
+    your_team: str = None
+    your_role: str = None
+    remaining_red: int = 0
+    remaining_blue: int = 0
+    your_clue: typing.Optional[str] = None
+    your_number: typing.Optional[int] = None
+    cards: typing.List[CardType] = None
+    output: GameSynapseOutput = None
 
-    # Optional request output, filled by receiving axon.
-    dummy_output: typing.Optional[int] = None
 
-    def deserialize(self) -> int:
+    def deserialize(self) -> GameSynapseOutput:
         """
-        Deserialize the dummy output. This method retrieves the response from
-        the miner in the form of dummy_output, deserializes it and returns it
+        Deserialize the output. This method retrieves the response from
+        the miner in the form of output, deserializes it and returns it
         as the output of the dendrite.query() call.
 
         Returns:
-        - int: The deserialized response, which in this case is the value of dummy_output.
+        - GameSynapseOutput: The deserialized response.
 
         Example:
-        Assuming a Dummy instance has a dummy_output value of 5:
-        >>> dummy_instance = Dummy(dummy_input=4)
-        >>> dummy_instance.dummy_output = 5
-        >>> dummy_instance.deserialize()
-        5
+        Assuming a GameSynapse instance has an output value:
+        >>> synapse_instance = GameSynapse(your_team=TeamColor.RED, your_role=Role.SPYMASTER, remaining_red=9, remaining_blue=8, cards=[])
+        >>> synapse_instance.output = GameSynapseOutput(clue_text="example", number=1)
+        >>> synapse_instance.deserialize()
+        GameSynapseOutput(clue_text="example", number=1)
         """
-        return self.dummy_output
+        return self.output
+    
