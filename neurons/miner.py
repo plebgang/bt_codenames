@@ -43,8 +43,8 @@ class Miner(BaseMinerNeuron):
         # TODO(developer): Anything specific to your use case you can do here
 
     async def forward(
-        self, synapse: game.protocol.Dummy
-    ) -> game.protocol.Dummy:
+        self, synapse: game.protocol.GameSynapse
+    ) -> game.protocol.GameSynapse:
         """
         Processes the incoming 'Dummy' synapse by performing a predefined operation on the input data.
         This method should be replaced with actual logic relevant to the miner's purpose.
@@ -58,12 +58,30 @@ class Miner(BaseMinerNeuron):
         The 'forward' function is a placeholder and should be overridden with logic that is appropriate for
         the miner's intended operation. This method demonstrates a basic transformation of input data.
         """
-        # TODO(developer): Replace with actual implementation logic.
-        synapse.dummy_output = synapse.dummy_input * 2
+        bt.logging.info(f"💌 Received synapse: {synapse}")
+        
+        user_prompt = f"""
+        ### Current Game State
+        Your Team: {synapse.your_team}
+        Your Role: {synapse.your_role}
+        Red Cards Left to Guess: {synapse.remaining_red}
+        Blue Cards Left to Guess: {synapse.remaining_blue}
+
+        Board: {[
+            {
+                "word": card.word,
+                "isRevealed": card.is_revealed,
+                "color": card.color if card.is_revealed else None
+            } for card in synapse.cards
+        ] if synapse.your_role == 'operative' else synapse.cards}
+
+        {f"Your Clue: {synapse.output.clue_text}\nNumber: {synapse.output.number}" if synapse.your_role == 'operative' and synapse.output else ''}
+        """
+        
         return synapse
 
     async def blacklist(
-        self, synapse: game.protocol.Dummy
+        self, synapse: game.protocol.GameSynapse
     ) -> typing.Tuple[bool, str]:
         """
         Determines whether an incoming request should be blacklisted and thus ignored. Your implementation should
@@ -126,7 +144,7 @@ class Miner(BaseMinerNeuron):
         )
         return False, "Hotkey recognized!"
 
-    async def priority(self, synapse: game.protocol.Dummy) -> float:
+    async def priority(self, synapse: game.protocol.GameSynapse) -> float:
         """
         The priority function determines the order in which requests are handled. More valuable or higher-priority
         requests are processed before others. You should design your own priority mechanism with care.

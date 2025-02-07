@@ -76,6 +76,9 @@ async def forward(self):
     # The dendrite client queries the network.
     # organize team
     (red_team, blue_team) = organize_team(self, miner_uids)
+    # ! TODO red_team and blue_team are organized with only 1 miner for testing purposes
+    red_team = {"spymaster": 1, "operative": 1}
+    blue_team = {"spymaster": 1, "operative": 1}
     bt.logging.info(f"Red Team: {red_team}")
     bt.logging.info(f"Blue Team: {blue_team}")
     
