@@ -40,7 +40,7 @@ class ChatMessage(NamedTuple):
     team: TeamColor
     cards: list[CardType]
 
-class Clue(NamedTuple):
+class Clue(BaseModel):
     clueText: str
     number: int
 

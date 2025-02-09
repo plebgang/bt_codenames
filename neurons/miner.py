@@ -1,7 +1,6 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# TODO(developer): Set your name
-# Copyright © 2023 <your name>
+# Copyright © 2023 plebgang
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
@@ -19,14 +18,21 @@
 
 import time
 import typing
+import json
+import ast
 import bittensor as bt
-
+import os
+from dotenv import load_dotenv
+from game.utils.spySysPrompt import spySysPrompt
+from game.utils.opSysPrompt import opSysPrompt
 # Bittensor Miner Template:
 import game
-
+from game.protocol import GameSynapseOutput
+import openai
 # import base miner class which takes care of most of the boilerplate
 from game.base.miner import BaseMinerNeuron
-
+ 
+load_dotenv()
 
 class Miner(BaseMinerNeuron):
     """
@@ -40,59 +46,121 @@ class Miner(BaseMinerNeuron):
     def __init__(self, config=None):
         super(Miner, self).__init__(config=config)
 
-        # TODO(developer): Anything specific to your use case you can do here
-
     async def forward(
-        self, synapse: game.protocol.Dummy
-    ) -> game.protocol.Dummy:
+        self, synapse: game.protocol.GameSynapse
+    ) -> game.protocol.GameSynapse:
         """
-        Processes the incoming 'Dummy' synapse by performing a predefined operation on the input data.
-        This method should be replaced with actual logic relevant to the miner's purpose.
+        Handles the incoming 'GameSynapse' by executing a series of operations based on the game state.
+        This method should be customized to implement the specific logic required for the miner's function.
 
         Args:
-            synapse (template.protocol.Dummy): The synapse object containing the 'dummy_input' data.
+            synapse (game.protocol.GameSynapse): The synapse object containing the game state data.
 
         Returns:
-            template.protocol.Dummy: The synapse object with the 'dummy_output' field set to twice the 'dummy_input' value.
+            game.protocol.GameSynapse: The synapse object with updated fields based on the miner's processing logic.
 
-        The 'forward' function is a placeholder and should be overridden with logic that is appropriate for
-        the miner's intended operation. This method demonstrates a basic transformation of input data.
+        The 'forward' function is a template and should be tailored to fit the miner's specific operational needs.
+        This method illustrates a basic framework for processing game-related data.
         """
-        # TODO(developer): Replace with actual implementation logic.
-        synapse.dummy_output = synapse.dummy_input * 2
+        bt.logging.info(f"💌 Received synapse")
+        
+        userPrompt = f"""
+        ### Current Game State
+        Your Team: {synapse.your_team}
+        Your Role: {synapse.your_role}
+        Red Cards Left to Guess: {synapse.remaining_red}
+        Blue Cards Left to Guess: {synapse.remaining_blue}
+
+        Board: {[
+            {
+                "word": card.word,
+                "isRevealed": card.is_revealed,
+                "color": card.color if card.is_revealed else None
+            } for card in synapse.cards
+        ] if synapse.your_role == 'operative' else synapse.cards}
+
+        {f"Your Clue: {synapse.your_clue}\nNumber: {synapse.your_number}" if synapse.your_role == 'operative' else ''}
+        """
+        
+        messages: typing.List(typing.Dict) = []
+        messages.append({
+            'role': 'system',
+            'content': spySysPrompt if synapse.your_role == 'spymaster' else opSysPrompt
+        })
+        messages.append({
+            'role': 'user',
+            'content': userPrompt
+        })
+
+        async def get_gpt4_response(messages):
+            
+            try:
+                client = openai.OpenAI(api_key=os.environ.get('OPENAI_KEY'))
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                bt.logging.error(f"Error fetching response from GPT-4: {e}")
+                return None
+        
+        response_str = await get_gpt4_response(messages)
+        response_dict = json.loads(response_str)
+        if 'clue' in response_dict:
+            clue = response_dict['clue']
+        else:
+            clue = None
+        if 'number' in response_dict:
+            number = response_dict['number']
+        else:
+            number = None
+        if 'reasoning' in response_dict:
+            reasoning = response_dict['reasoning']
+        else:
+            reasoning = None
+            
+        if 'guesses' in response_dict:
+            guesses = response_dict['guesses']
+            print(guesses)
+        else:
+            guesses = None
+        
+        synapse.output = GameSynapseOutput(clue_text=clue, number=number, reasoning=reasoning, guesses=guesses)
+        bt.logging.info(f"🚀 successfully get response from llm: {synapse.output}")
+
         return synapse
 
     async def blacklist(
-        self, synapse: game.protocol.Dummy
+        self, synapse: game.protocol.GameSynapse
     ) -> typing.Tuple[bool, str]:
         """
-        Determines whether an incoming request should be blacklisted and thus ignored. Your implementation should
-        define the logic for blacklisting requests based on your needs and desired security parameters.
+        Evaluates whether an incoming request should be blacklisted and ignored based on predefined security criteria.
 
-        Blacklist runs before the synapse data has been deserialized (i.e. before synapse.data is available).
-        The synapse is instead contracted via the headers of the request. It is important to blacklist
-        requests before they are deserialized to avoid wasting resources on requests that will be ignored.
+        The blacklist function operates before the synapse data is deserialized, utilizing request headers to make
+        decisions. This preemptive check is crucial to conserve resources by filtering out requests that will not
+        be processed.
 
         Args:
-            synapse (template.protocol.Dummy): A synapse object constructed from the headers of the incoming request.
+            synapse (game.protocol.GameSynapse): A synapse object derived from the incoming request's headers.
 
         Returns:
-            Tuple[bool, str]: A tuple containing a boolean indicating whether the synapse's hotkey is blacklisted,
-                            and a string providing the reason for the decision.
+            Tuple[bool, str]: A tuple where the first element is a boolean indicating if the synapse's hotkey is
+                              blacklisted, and the second element is a string explaining the reason.
 
-        This function is a security measure to prevent resource wastage on undesired requests. It should be enhanced
-        to include checks against the metagraph for entity registration, validator status, and sufficient stake
-        before deserialization of synapse data to minimize processing overhead.
+        This function serves as a security measure to prevent unnecessary processing of undesirable requests. It is
+        advisable to enhance this function with checks for entity registration, validator status, and adequate stake
+        before synapse data deserialization to reduce processing load.
 
-        Example blacklist logic:
-        - Reject if the hotkey is not a registered entity within the metagraph.
-        - Consider blacklisting entities that are not validators or have insufficient stake.
+        Suggested blacklist criteria:
+        - Reject requests if the hotkey is not a registered entity in the metagraph.
+        - Consider blacklisting entities that are not validators or lack sufficient stake.
 
-        In practice it would be wise to blacklist requests from entities that are not validators, or do not have
-        enough stake. This can be checked via metagraph.S and metagraph.validator_permit. You can always attain
-        the uid of the sender via a metagraph.hotkeys.index( synapse.dendrite.hotkey ) call.
+        In practice, it is prudent to blacklist requests from non-validators or entities with insufficient stake.
+        This can be verified using metagraph.S and metagraph.validator_permit. The sender's uid can be obtained via
+        metagraph.hotkeys.index(synapse.dendrite.hotkey).
 
-        Otherwise, allow the request to be processed further.
+        If none of the blacklist conditions are met, the request should proceed to further processing.
         """
 
         if synapse.dendrite is None or synapse.dendrite.hotkey is None:
@@ -126,25 +194,27 @@ class Miner(BaseMinerNeuron):
         )
         return False, "Hotkey recognized!"
 
-    async def priority(self, synapse: game.protocol.Dummy) -> float:
+    async def priority(self, synapse: game.protocol.GameSynapse) -> float:
         """
-        The priority function determines the order in which requests are handled. More valuable or higher-priority
-        requests are processed before others. You should design your own priority mechanism with care.
+        The priority function is responsible for determining the sequence in which requests are processed. Requests
+        deemed more valuable or of higher priority are handled before others. It is crucial to carefully design your
+        own priority mechanism.
 
-        This implementation assigns priority to incoming requests based on the calling entity's stake in the metagraph.
+        This current implementation calculates priority for incoming requests based on the stake of the calling entity
+        within the metagraph.
 
         Args:
-            synapse (template.protocol.Dummy): The synapse object that contains metadata about the incoming request.
+            synapse (game.protocol.GameSynapse): The synapse object containing metadata about the incoming request.
 
         Returns:
-            float: A priority score derived from the stake of the calling entity.
+            float: A priority score calculated from the stake of the calling entity.
 
-        Miners may receive messages from multiple entities at once. This function determines which request should be
-        processed first. Higher values indicate that the request should be processed first. Lower values indicate
-        that the request should be processed later.
+        Miners may receive requests from multiple entities simultaneously. This function decides which request should
+        be prioritized. Higher priority values mean the request is processed sooner, while lower values mean it is
+        processed later.
 
         Example priority logic:
-        - A higher stake results in a higher priority value.
+        - Entities with a higher stake receive a higher priority score.
         """
         if synapse.dendrite is None or synapse.dendrite.hotkey is None:
             bt.logging.warning(
@@ -170,4 +240,4 @@ if __name__ == "__main__":
     with Miner() as miner:
         while True:
             bt.logging.info(f"Miner running... {time.time()}")
-            time.sleep(5)
+            time.sleep(10)
