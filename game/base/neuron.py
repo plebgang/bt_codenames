@@ -64,7 +64,6 @@ class BaseNeuron(ABC):
         self.config = self.config()
         self.config.merge(base_config)
         self.check_config(self.config)
-
         # Set up logging with the provided configuration.
         bt.logging.set_config(config=self.config.logging)
 
@@ -91,7 +90,7 @@ class BaseNeuron(ABC):
             self.wallet = bt.wallet(config=self.config)
             self.subtensor = bt.subtensor(config=self.config)
             self.metagraph = self.subtensor.metagraph(self.config.netuid)
-
+        self.last_metagraph_update = self.block
         bt.logging.info(f"Wallet: {self.wallet}")
         bt.logging.info(f"Subtensor: {self.subtensor}")
         bt.logging.info(f"Metagraph: {self.metagraph}")
@@ -125,6 +124,7 @@ class BaseNeuron(ABC):
 
         if self.should_sync_metagraph():
             self.resync_metagraph()
+            self.last_metagraph_update = self.block
 
         if self.should_set_weights():
             self.set_weights()
@@ -149,7 +149,7 @@ class BaseNeuron(ABC):
         Check if enough epoch blocks have elapsed since the last checkpoint to sync.
         """
         return (
-            self.block - self.metagraph.last_update[self.uid]
+            self.block - self.last_metagraph_update
         ) > self.config.neuron.epoch_length
 
     def should_set_weights(self) -> bool:

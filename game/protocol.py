@@ -47,10 +47,10 @@ class GameSynapse(bt.Synapse):
     your_clue: typing.Optional[str] = None
     your_number: typing.Optional[int] = None
     cards: typing.List[CardType] = None
-    output: GameSynapseOutput = None
+    output: GameSynapseOutput | None = None
 
 
-    def deserialize(self) -> GameSynapseOutput:
+    def deserialize(self) -> GameSynapseOutput | None:
         """
         Deserialize the output. This method retrieves the response from
         the miner in the form of output, deserializes it and returns it

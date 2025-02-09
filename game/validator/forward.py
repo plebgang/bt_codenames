@@ -1,7 +1,6 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# TODO(developer): Set your name
-# Copyright © 2023 <your name>
+# Copyright © 2023 plebgang
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
@@ -61,12 +60,12 @@ def resetAnimations(self, cards):
         card.was_recently_revealed = False
 async def forward(self):
     """
-    The forward function is called by the validator every time step.
+    This method is invoked by the validator at each time step.
 
-    It is responsible for querying the network and scoring the responses.
+    Its main function is to query the network and evaluate the responses.
 
-    Args:
-        self (:obj:`bittensor.neuron.Neuron`): The neuron object which contains all the necessary state for the validator.
+    Parameters:
+        self (bittensor.neuron.Neuron): The neuron instance containing all necessary state information for the validator.
 
     """
     # get_random_uids is an example method, but you can replace it with your own.
@@ -81,10 +80,10 @@ async def forward(self):
     blue_team = {"spymaster": 1, "operative": 1}
     bt.logging.info(f"Red Team: {red_team}")
     bt.logging.info(f"Blue Team: {blue_team}")
-    
     # * Initialize game
     game_step = 0
     game_state = GameState()
+    # TODO: API to report the team with the initial state
     # * Game loop until game is over
     while game_state.gameWinner is None:
         # Prepare the query
@@ -116,7 +115,6 @@ async def forward(self):
         your_clue = game_state.currentClue.clueText if game_state.currentClue is not None else None
         your_number = game_state.currentClue.number if game_state.currentClue is not None else None
 
-        
         synapse = GameSynapse(
             your_team=your_team,
             your_role=your_role,
@@ -127,7 +125,7 @@ async def forward(self):
             cards=cards,
         )
 
-        bt.logging.info(synapse)
+        bt.logging.info(f"⏩ Sending query to miner {to_uid}")
         responses = await self.dendrite(
             # Send the query to selected miner axons in the network.
             axons=[self.metagraph.axons[to_uid]],
@@ -139,7 +137,6 @@ async def forward(self):
         )
         # TODO: handle response timeout
         if len(responses) == 0 or responses[0] is None:
-            bt.logging.error("No response received")
             game_state.gameWinner = TeamColor.RED if game_state.currentTeam == TeamColor.BLUE else TeamColor.BLUE
             resetAnimations(self, game_state.cards)
             bt.logging.info(f"💀 No response received! Game over. Winner: {game_state.gameWinner}")
@@ -147,21 +144,22 @@ async def forward(self):
 
         if game_state.currentRole == Role.SPYMASTER:
             # * Get the clue and number from the response
-            clue = responses[0].output.clue_text
-            number = responses[0].output.number
-            reasoning = responses[0].output.reasoning
+            clue = responses[0].clue_text
+            number = responses[0].number
+            reasoning = responses[0].reasoning
             game_state.currentClue = Clue(clueText=clue, number=number)
             bt.logging.info(f"Clue: {clue}, Number: {number}")
-            bt.logging.info("====================================")
             bt.logging.info(f"Reasoning: {reasoning}")
             game_state.chatHistory.append(ChatMessage(sender=Role.SPYMASTER, message=reasoning, team=game_state.currentTeam, cards=game_state.cards))
+            game_state.currentClue.clueText = clue
+            game_state.currentClue.number = number
+
         
         elif game_state.currentRole == Role.OPERATIVE:
             # * Get the guessed cards from the response
-            guesses = responses[0].output.guesses
-            reasoning = responses[0].output.reasoning
+            guesses = responses[0].guesses
+            reasoning = responses[0].reasoning
             bt.logging.info(f"Guessed cards: {guesses}")
-            bt.logging.info("====================================")
             bt.logging.info(f"Reasoning: {reasoning}")
             # * Update the game state
 
@@ -172,12 +170,12 @@ async def forward(self):
                     continue
                 card.is_revealed = True
                 card.was_recently_revealed = True
-                if card.color == CardColor.RED:
+                if card.color == "red":
                     game_state.remainingRed -= 1
-                elif card.color == CardColor.BLUE:
+                elif card.color == "blue":
                     game_state.remainingBlue -= 1
-                # ! Check if the card is the assassin
-                if card.color == CardColor.ASSASSIN:
+
+                if card.color == "assassin":
                     game_state.gameWinner = TeamColor.RED if game_state.currentTeam == TeamColor.BLUE else TeamColor.BLUE
                     resetAnimations(self, game_state.cards)
                     bt.logging.info(f"💀 Assassin card found! Game over. Winner: {game_state.gameWinner}")
@@ -213,6 +211,7 @@ async def forward(self):
             else:
                 game_state.currentTeam = TeamColor.RED
         game_step += 1
+        # TODO: API to report the game state after each step
     # # Log the results for monitoring purposes.
     # bt.logging.info(f"Received responses: {responses}")
 
