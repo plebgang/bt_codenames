@@ -1,5 +1,6 @@
 <div align = "center">
-![BattleGame Logo](./docs/comlogo.png)
+
+![BattleGame Logo](./docs/battlegame.jpg)
 
 # BATTLEGAME-LLM
 </div>
