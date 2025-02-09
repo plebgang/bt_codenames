@@ -1,4 +1,8 @@
-# CodeNames
+<div align = "center">
+![BattleGame Logo](./docs/comlogo.png)
+
+# BATTLEGAME-LLM
+</div>
 
 ## Running on Testnet
 - For validator
